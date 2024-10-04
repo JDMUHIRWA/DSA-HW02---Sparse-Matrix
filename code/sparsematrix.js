@@ -1,172 +1,227 @@
 const fs = require("fs");
+const path = require("path");
 
 class SparseMatrix {
   constructor(matrixFilePath = null, numRows = null, numCols = null) {
     if (matrixFilePath) {
-      this.loadFromFile(matrixFilePath);
-    } else if (numRows !== null && numCols !== null) {
+      const { numRows, numCols, elements } =
+        this.readMatrixFile(matrixFilePath);
       this.numRows = numRows;
       this.numCols = numCols;
-      this.matrix = {};
-    }
-  }
-
-  // Method to load the matrix from file
-  loadFromFile(matrixFilePath) {
-    const data = fs.readFileSync(matrixFilePath, "utf8");
-    const lines = data.trim().split("\n");
-
-    try {
-      this.numRows = parseInt(lines[0].split("=")[1].trim());
-      this.numCols = parseInt(lines[1].split("=")[1].trim());
-      this.matrix = {};
-
-      for (let i = 2; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (line === "") continue;
-        if (!line.startsWith("(") || !line.endsWith(")")) {
-          throw new Error("Input file has wrong format");
-        }
-        const [row, col, value] = line.slice(1, -1).split(",").map(Number);
-        this.setElement(row, col, value);
-      }
-    } catch (error) {
-      throw new Error(`Input file has wrong format: ${error.message}`);
-    }
-  }
-
-  // Method to get an element from the matrix
-  getElement(row, col) {
-    return this.matrix[`${row},${col}`] || 0;
-  }
-
-  // Method to set an element in the matrix
-  setElement(row, col, value) {
-    if (value !== 0) {
-      this.matrix[`${row},${col}`] = value;
+      this.elements = elements;
     } else {
-      delete this.matrix[`${row},${col}`];
+      this.numRows = numRows;
+      this.numCols = numCols;
+      this.elements = {};
     }
   }
 
-  // Method to add two matrices
-  add(otherMatrix) {
-    if (
-      this.numRows !== otherMatrix.numRows ||
-      this.numCols !== otherMatrix.numCols
-    ) {
-      throw new Error("Matrices must have the same dimensions for addition");
-    }
+  readMatrixFile(filePath) {
+    const elements = {};
+    const lines = fs.readFileSync(filePath, "utf-8").split("\n");
+    const numRows = parseInt(lines[0].split("=")[1]);
+    const numCols = parseInt(lines[1].split("=")[1]);
 
-    const result = new SparseMatrix(null, this.numRows, this.numCols);
-
-    for (const key of new Set([
-      ...Object.keys(this.matrix),
-      ...Object.keys(otherMatrix.matrix),
-    ])) {
-      const [row, col] = key.split(",").map(Number);
-      const value =
-        this.getElement(row, col) + otherMatrix.getElement(row, col);
-      result.setElement(row, col, value);
-    }
-
-    return result;
-  }
-
-  // Method to subtract two matrices
-  subtract(otherMatrix) {
-    if (
-      this.numRows !== otherMatrix.numRows ||
-      this.numCols !== otherMatrix.numCols
-    ) {
-      throw new Error("Matrices must have the same dimensions for subtraction");
-    }
-
-    const result = new SparseMatrix(null, this.numRows, this.numCols);
-
-    for (const key of new Set([
-      ...Object.keys(this.matrix),
-      ...Object.keys(otherMatrix.matrix),
-    ])) {
-      const [row, col] = key.split(",").map(Number);
-      const value =
-        this.getElement(row, col) - otherMatrix.getElement(row, col);
-      result.setElement(row, col, value);
-    }
-
-    return result;
-  }
-
-  // Method to multiply two matrices
-  multiply(otherMatrix) {
-    if (this.numCols !== otherMatrix.numRows) {
-      throw new Error(
-        "Number of columns in the first matrix must equal the number of rows in the second matrix for multiplication"
-      );
-    }
-
-    const result = new SparseMatrix(null, this.numRows, otherMatrix.numCols);
-
-    for (let i = 0; i < this.numRows; i++) {
-      for (let j = 0; j < otherMatrix.numCols; j++) {
-        let value = 0;
-        for (let k = 0; k < this.numCols; k++) {
-          value += this.getElement(i, k) * otherMatrix.getElement(k, j);
-        }
-        if (value !== 0) {
-          result.setElement(i, j, value);
-        }
+    for (let i = 2; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+      if (line.startsWith("(") && line.endsWith(")")) {
+        const [row, col, value] = line.slice(1, -1).split(",").map(Number);
+        if (!elements[row]) elements[row] = {};
+        elements[row][col] = value;
+      } else {
+        throw new Error("Input file has wrong format");
       }
     }
 
+    return { numRows, numCols, elements };
+  }
+
+  getElement(currRow, currCol) {
+    return this.elements[currRow]?.[currCol] || 0;
+  }
+
+  setElement(currRow, currCol, value) {
+    if (!this.elements[currRow]) this.elements[currRow] = {};
+    this.elements[currRow][currCol] = value;
+  }
+
+  add(other) {
+    if (this.numRows !== other.numRows || this.numCols !== other.numCols) {
+      throw new Error("Matrices dimensions do not match for addition");
+    }
+    const result = new SparseMatrix(null, this.numRows, this.numCols);
+    for (let row = 0; row < this.numRows; row++) {
+      for (let col = 0; col < this.numCols; col++) {
+        const sumValue = this.getElement(row, col) + other.getElement(row, col);
+        if (sumValue !== 0) {
+          result.setElement(row, col, sumValue);
+        }
+      }
+    }
     return result;
   }
 
-  // Method to write the matrix to a file
-  writeToFile(outputFilePath) {
-    const lines = [`rows=${this.numRows}`, `cols=${this.numCols}`];
-    for (const [key, value] of Object.entries(this.matrix)) {
-      const [row, col] = key.split(",");
-      lines.push(`(${row}, ${col}, ${value})`);
+  subtract(other) {
+    if (this.numRows !== other.numRows || this.numCols !== other.numCols) {
+      throw new Error("Matrices dimensions do not match for subtraction");
     }
-    fs.writeFileSync(outputFilePath, lines.join("\n"));
+    const result = new SparseMatrix(null, this.numRows, this.numCols);
+    for (let row = 0; row < this.numRows; row++) {
+      for (let col = 0; col < this.numCols; col++) {
+        const diffValue =
+          this.getElement(row, col) - other.getElement(row, col);
+        if (diffValue !== 0) {
+          result.setElement(row, col, diffValue);
+        }
+      }
+    }
+    return result;
+  }
+
+  multiply(other) {
+    if (this.numCols !== other.numRows) {
+      throw new Error("Matrices dimensions do not match for multiplication");
+    }
+    const result = new SparseMatrix(null, this.numRows, other.numCols);
+    for (let i = 0; i < this.numRows; i++) {
+      for (let j = 0; j < other.numCols; j++) {
+        let sumValue = 0;
+        for (let k = 0; k < this.numCols; k++) {
+          sumValue += this.getElement(i, k) * other.getElement(k, j);
+        }
+        if (sumValue !== 0) {
+          result.setElement(i, j, sumValue);
+        }
+      }
+    }
+    return result;
+  }
+
+  toString() {
+    const result = [];
+    for (let row = 0; row < this.numRows; row++) {
+      for (let col in this.elements[row] || {}) {
+        result.push(`(${row}, ${col}, ${this.elements[row][col]})`);
+      }
+    }
+    return result.join("\n");
   }
 }
 
+function writeMatrixToFile(matrix, filePath) {
+  const sampleOutputDir = path.join(__dirname, "..", "sample_outputs"); // Define the sample_outputs directory
+  const fullFilePath = path.join(sampleOutputDir, filePath); // Combine output directory and file path
+
+  fs.mkdirSync(path.dirname(fullFilePath), { recursive: true });
+  const content = `rows=${matrix.numRows}\ncols=${
+    matrix.numCols
+  }\n${matrix.toString()}`;
+  fs.writeFileSync(fullFilePath, content);
+}
+
 function main() {
-  const input1 =
-    "/Users/muhirwa/DSA-HW02---Sparse-Matrix/sample_inputs/matrix1.txt";
-  const input2 =
-    "/Users/muhirwa/DSA-HW02---Sparse-Matrix/sample_inputs/matrixfile3.txt";
+  const readline = require("readline").createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
 
-  const matrix1 = new SparseMatrix(input1);
-  const matrix2 = new SparseMatrix(input2);
+  const askQuestion = (query) =>
+    new Promise((resolve) => readline.question(query, resolve));
 
-  console.log("Select the operation to perform:");
-  console.log("1. Addition");
-  console.log("2. Subtraction");
-  console.log("3. Multiplication");
+  (async function () {
+    while (true) {
+      const file1 = await askQuestion(
+        "Please enter the name of the first matrix file (inside sample_inputs): "
+      );
+      const file2 = await askQuestion(
+        "Please enter the name of the second matrix file (inside sample_inputs): "
+      );
 
-  const operation = prompt("Enter operation (1/2/3): ").trim();
+      const matrixFile1Path = path.join(
+        __dirname,
+        "..",
+        "sample_inputs",
+        file1
+      );
+      const matrixFile2Path = path.join(
+        __dirname,
+        "..",
+        "sample_inputs",
+        file2
+      );
 
-  let result;
-  const outputFilePath = "sample_outputs/result.txt";
+      while (true) {
+        console.log("Select the operation you want to perform:");
+        console.log("1. Addition");
+        console.log("2. Subtraction");
+        console.log("3. Multiplication");
+        const operation = await askQuestion(
+          "Enter the number corresponding to the operation: "
+        );
 
-  if (operation === "1") {
-    result = matrix1.add(matrix2);
-    result.writeToFile(outputFilePath);
-    console.log("Addition result written to", outputFilePath);
-  } else if (operation === "2") {
-    result = matrix1.subtract(matrix2);
-    result.writeToFile(outputFilePath);
-    console.log("Subtraction result written to", outputFilePath);
-  } else if (operation === "3") {
-    result = matrix1.multiply(matrix2);
-    result.writeToFile(outputFilePath);
-    console.log("Multiplication result written to", outputFilePath);
-  } else {
-    console.log("Invalid operation selected.");
-  }
+        const additionFile = "Addition_result.txt";
+        const subtractionFile = "Subtraction_result.txt";
+        const multiplicationFile = "Multiplication_result.txt";
+
+        const matrix1 = new SparseMatrix(matrixFile1Path);
+        const matrix2 = new SparseMatrix(matrixFile2Path);
+
+        console.log(`Matrix 1: ${matrix1.numRows}x${matrix1.numCols}`);
+        console.log(`Matrix 2: ${matrix2.numRows}x${matrix2.numCols}`);
+
+        if (operation === "1") {
+          if (
+            matrix1.numRows === matrix2.numRows &&
+            matrix1.numCols === matrix2.numCols
+          ) {
+            const additionResult = matrix1.add(matrix2);
+            writeMatrixToFile(additionResult, additionFile);
+            console.log("Addition result has been written to sample_outputs");
+          } else {
+            console.log("Skipping addition due to dimension mismatch");
+          }
+        } else if (operation === "2") {
+          if (
+            matrix1.numRows === matrix2.numRows &&
+            matrix1.numCols === matrix2.numCols
+          ) {
+            const subtractionResult = matrix1.subtract(matrix2);
+            writeMatrixToFile(subtractionResult, subtractionFile);
+            console.log(
+              "Subtraction result has been written to sample_outputs"
+            );
+          } else {
+            console.log("Skipping subtraction due to dimension mismatch");
+          }
+        } else if (operation === "3") {
+          if (matrix1.numCols === matrix2.numRows) {
+            const multiplicationResult = matrix1.multiply(matrix2);
+            writeMatrixToFile(multiplicationResult, multiplicationFile);
+            console.log(
+              "Multiplication result has been written to sample_outputs"
+            );
+          } else {
+            console.log("Skipping multiplication due to dimension mismatch");
+          }
+        } else {
+          console.log("Invalid operation selected");
+        }
+
+        const continueChoice = await askQuestion(
+          "Do you want to perform another operation? (yes/no): "
+        );
+        if (continueChoice.trim().toLowerCase() !== "yes") break;
+      }
+
+      const newFilesChoice = await askQuestion(
+        "Do you want to input new files? (yes/no): "
+      );
+      if (newFilesChoice.trim().toLowerCase() !== "yes") break;
+    }
+
+    readline.close();
+  })();
 }
 
 main();
